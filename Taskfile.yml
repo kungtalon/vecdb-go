@@ -1,0 +1,105 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  FAISS_DIR: "{{.ROOT_DIR}}/faiss"
+  GOSL_DIR: "{{.ROOT_DIR}}/gosl"
+
+tasks:
+  setup:
+    desc: Install all dependencies (FAISS, system packages, and gosl)
+    cmds:
+      - task: install-faiss
+      - task: install-system-packages
+      - task: install-gosl
+      - task: install-go-tools
+
+  install-faiss:
+    desc: Install FAISS with C API support
+    cmds:
+      - git clone https://github.com/facebookresearch/faiss.git {{.FAISS_DIR}}
+      - |
+        cd {{.FAISS_DIR}}
+        cmake -B build \
+          -DFAISS_ENABLE_GPU=OFF \
+          -DFAISS_ENABLE_PYTHON=OFF \
+          -DFAISS_ENABLE_C_API=ON \
+          -DBUILD_SHARED_LIBS=ON \
+          -DBUILD_TESTING=OFF \
+          -DFAISS_OPT_LEVEL=generic \
+          -DCMAKE_BUILD_TYPE=Release
+      - make -C {{.FAISS_DIR}}/build
+      - sudo make -C {{.FAISS_DIR}}/build install
+      - sudo cp {{.FAISS_DIR}}/build/c_api/libfaiss_c.so /usr/local/lib
+    status:
+      - test -f /usr/local/lib/libfaiss_c.so
+
+  install-system-packages:
+    desc: Install required system packages for gosl
+    cmds:
+      - |
+        sudo apt install -y \
+          gcc \
+          gfortran \
+          libfftw3-dev \
+          liblapacke-dev \
+          libmetis-dev \
+          libmumps-seq-dev \
+          libopenblas-dev \
+          libsuitesparse-dev
+
+  install-gosl:
+    desc: Install gosl
+    cmds:
+      - git clone https://github.com/cpmech/gosl.git {{.GOSL_DIR}}
+      - cd {{.GOSL_DIR}} && ./all.bash
+    status:
+      - test -d {{.GOSL_DIR}}
+
+  install-go-tools:
+    desc: Install Go and necessary Go development tools
+    cmds:
+      - |
+        # Check and install Go if not present
+        if ! command -v go &> /dev/null; then
+          echo "Go not found, installing..."
+          wget -q https://go.dev/dl/go1.24.1.linux-amd64.tar.gz
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf go1.24.1.linux-amd64.tar.gz
+          rm go1.24.1.linux-amd64.tar.gz
+          echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+          export PATH=$PATH:/usr/local/go/bin
+        else
+          echo "Go is already installed: $(go version)"
+        fi
+      - |
+        # Install golangci-lint
+        if ! command -v golangci-lint &> /dev/null; then
+          echo "Installing golangci-lint..."
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        else
+          echo "golangci-lint is already installed: $(golangci-lint version)"
+        fi
+      - |
+        # Install other useful Go tools
+        echo "Installing additional Go tools..."
+        go install golang.org/x/tools/cmd/goimports@latest
+        go install golang.org/x/tools/gopls@latest
+        go install github.com/go-delve/delve/cmd/dlv@latest
+
+  clean:
+    desc: Remove cloned repositories
+    cmds:
+      - rm -rf {{.FAISS_DIR}}
+      - rm -rf {{.GOSL_DIR}}
+
+  lint:
+    desc: Run Go linter on the current working directory
+    cmds:
+      - golangci-lint run {{.USER_WORKING_DIR}}/...
+
+  test:
+    desc: Run Go tests
+    cmds:
+      - cd {{.USER_WORKING_DIR}} && go test -v ./...

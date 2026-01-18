@@ -1,0 +1,13 @@
+# Configuration settings for the application
+
+[database]
+# Database parameters
+file_path = "path/to/database"
+# Add other database parameters as needed
+
+[server]
+# Server configuration
+search_url_suffix = "/search"
+upsert_url_suffix = "/upsert"
+port = 8080
+log_level = "info"
