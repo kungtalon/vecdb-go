@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"vecdb-go/internal/common"
+	"vecdb-go/internal/common/math"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -120,10 +121,10 @@ func testVectorDatabaseUpsert(t *testing.T, indexType common.IndexType, metricTy
 
 	// Create test data
 	args := common.VdbUpsertArgs{
-		Vectors: common.VectorArgs{
-			FlatData: []float32{1.0, 2.0, 3.0, 4.0, 5.0, 6.0},
-			DataRow:  2,
-			DataDim:  3,
+		Vectors: math.Matrix32{
+			Rows: 2,
+			Cols: 3,
+			Data: []float32{1.0, 2.0, 3.0, 4.0, 5.0, 6.0},
 		},
 		Docs: []map[string]any{
 			{"name": "doc1"},
@@ -166,10 +167,10 @@ func testVectorDatabaseQuery(t *testing.T, indexType common.IndexType, metricTyp
 
 	// Insert test data
 	args := common.VdbUpsertArgs{
-		Vectors: common.VectorArgs{
-			FlatData: []float32{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0},
-			DataRow:  3,
-			DataDim:  3,
+		Vectors: math.Matrix32{
+			Rows: 3,
+			Cols: 3,
+			Data: []float32{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0},
 		},
 		Docs: []map[string]any{
 			{"name": "doc1"},
@@ -232,10 +233,10 @@ func testVectorDatabaseUpsertWithWrongDim(t *testing.T, indexType common.IndexTy
 
 	// Try to upsert data with wrong dimensions
 	args := common.VdbUpsertArgs{
-		Vectors: common.VectorArgs{
-			FlatData: []float32{1.0, 2.0}, // Wrong dimension (2 instead of 3)
-			DataRow:  1,
-			DataDim:  2,
+		Vectors: math.Matrix32{
+			Rows: 1,
+			Cols: 2,
+			Data: []float32{1.0, 2.0}, // Wrong dimension (2 instead of 3)
 		},
 		Docs: []map[string]any{
 			{"name": "doc1"},
@@ -312,15 +313,15 @@ func testVectorDatabaseQueryWithFilter(t *testing.T, indexType common.IndexType,
 
 	// Insert test data with different categories
 	args := common.VdbUpsertArgs{
-		Vectors: common.VectorArgs{
-			FlatData: []float32{
+		Vectors: math.Matrix32{
+			Rows: 4,
+			Cols: 3,
+			Data: []float32{
 				1.0, 2.0, 3.0,
 				4.0, 5.0, 6.0,
 				7.0, 8.0, 9.0,
 				10.0, 11.0, 12.0,
 			},
-			DataRow: 4,
-			DataDim: 3,
 		},
 		Docs: []map[string]any{
 			{"name": "doc1"},

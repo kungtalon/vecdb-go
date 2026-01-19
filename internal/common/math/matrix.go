@@ -3,6 +3,8 @@ package math
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/samber/lo"
 )
 
 // Matrix32 represents a matrix with float32 data in row-major order
@@ -10,6 +12,33 @@ type Matrix32 struct {
 	Rows int
 	Cols int
 	Data []float32 // row-major: Data[i*Cols + j] = element at row i, col j
+}
+
+func NewMatrix32(data [][]float32) (*Matrix32, error) {
+	if len(data) == 0 {
+		return &Matrix32{Rows: 0, Cols: 0, Data: []float32{}}, nil
+	}
+
+	rows := len(data)
+	cols := len(data[0])
+
+	// Check that all rows have the same length
+	if _, hasAny := lo.Find(data, func(row []float32) bool {
+		return len(row) != cols
+	}); hasAny {
+		return nil, fmt.Errorf("inconsistent row lengths in input data")
+	}
+
+	flatData := make([]float32, rows*cols)
+	for i := range rows {
+		copy(flatData[i*cols:(i+1)*cols], data[i])
+	}
+
+	return &Matrix32{Rows: rows, Cols: cols, Data: flatData}, nil
+}
+
+func (m *Matrix32) Dim() int {
+	return m.Rows * m.Cols
 }
 
 // Dims returns the number of rows and columns

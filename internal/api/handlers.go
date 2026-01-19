@@ -69,11 +69,7 @@ func HandleVectorUpsert(c *gin.Context) {
 	}
 
 	upsertArgs := common.VdbUpsertArgs{
-		Vectors: common.VectorArgs{
-			FlatData: payload.Data.RawData(),
-			DataRow:  payload.Data.Rows,
-			DataDim:  payload.Data.Cols,
-		},
+		Vectors:    payload.Data,
 		Docs:       payload.Docs,
 		Attributes: payload.Attributes,
 		HnswParams: payload.HnswParams,

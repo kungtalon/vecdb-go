@@ -91,7 +91,7 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 	}
 
 	// Generate unique IDs for the new vectors
-	ids, err := db.scalarStorage.GenIncrIDs(scalar.NamespaceDocs, args.Vectors.DataRow)
+	ids, err := db.scalarStorage.GenIncrIDs(scalar.NamespaceDocs, args.Vectors.Rows)
 	if err != nil {
 		return fmt.Errorf("failed to generate IDs: %w", err)
 	}
@@ -101,14 +101,14 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 	// Process attributes - ensure we have a slice of the right length
 	attributes := args.Attributes
 	if len(attributes) == 0 {
-		attributes = make([]map[string]any, args.Vectors.DataRow)
+		attributes = make([]map[string]any, args.Vectors.Rows)
 		for i := range attributes {
 			attributes[i] = make(map[string]any)
 		}
 	}
 
 	// Insert documents and attributes
-	for i := 0; i < args.Vectors.DataRow; i++ {
+	for i := 0; i < args.Vectors.Rows; i++ {
 		var doc map[string]any
 
 		if i < len(args.Docs) && args.Docs[i] != nil {
@@ -143,10 +143,10 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 }
 
 // insertVectors inserts vectors into the vector index
-func (db *VectorDatabase) insertVectors(ids []uint64, args *common.VectorArgs) error {
+func (db *VectorDatabase) insertVectors(ids []uint64, mat *math.Matrix32) error {
 	// Validate vector dimensions match database parameters
-	if args.DataDim != db.params.Dim {
-		return fmt.Errorf("vector dimension %d does not match database dimension %d", args.DataDim, db.params.Dim)
+	if mat.Dim() != db.params.Dim {
+		return fmt.Errorf("vector dimension %d does not match database dimension %d", mat.Dim(), db.params.Dim)
 	}
 
 	// Convert uint64 IDs to int64 labels
@@ -155,15 +155,8 @@ func (db *VectorDatabase) insertVectors(ids []uint64, args *common.VectorArgs) e
 		labels[i] = int64(id)
 	}
 
-	// Create matrix from flat data
-	matrix := &math.Matrix32{
-		Rows: args.DataRow,
-		Cols: args.DataDim,
-		Data: args.FlatData,
-	}
-
 	insertParams := &index.InsertParams{
-		Data:   matrix,
+		Data:   mat,
 		Labels: labels,
 	}
 

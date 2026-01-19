@@ -1,5 +1,7 @@
 package common
 
+import "vecdb-go/internal/common/math"
+
 // IndexType represents the type of vector index
 type IndexType string
 
@@ -41,19 +43,12 @@ type HnswSearchOption struct {
 	EfSearch uint32 `json:"ef_search"`
 }
 
-// VectorArgs contains vector data in flat format
-type VectorArgs struct {
-	FlatData []float32 `json:"flat_data"`
-	DataRow  int       `json:"data_row"`
-	DataDim  int       `json:"data_dim"`
-}
-
 // DocMap represents a document with arbitrary key-value pairs
 type DocMap map[string]any
 
 // VdbUpsertArgs contains arguments for upserting data into the vector database
 type VdbUpsertArgs struct {
-	Vectors    VectorArgs       `json:"vectors"`
+	Vectors    math.Matrix32    `json:"vectors"`
 	Docs       []map[string]any `json:"docs"`
 	Attributes []map[string]any `json:"attributes"`
 	HnswParams *HnswParams      `json:"hnsw_params,omitempty"`
@@ -76,16 +71,12 @@ type VdbSearchArgs struct {
 
 // Validate checks if VdbUpsertArgs has consistent dimensions
 func (args *VdbUpsertArgs) Validate() (string, int, int) {
-	if len(args.Docs) != args.Vectors.DataRow {
-		return "docs", len(args.Docs), args.Vectors.DataRow
+	if len(args.Docs) != args.Vectors.Rows {
+		return "docs", len(args.Docs), args.Vectors.Rows
 	}
 
-	if len(args.Attributes) > 0 && len(args.Attributes) != args.Vectors.DataRow {
-		return "attributes", len(args.Attributes), args.Vectors.DataRow
-	}
-
-	if args.Vectors.DataDim*args.Vectors.DataRow != len(args.Vectors.FlatData) {
-		return "flat_data", len(args.Vectors.FlatData), args.Vectors.DataDim * args.Vectors.DataRow
+	if len(args.Attributes) > 0 && len(args.Attributes) != args.Vectors.Rows {
+		return "attributes", len(args.Attributes), args.Vectors.Rows
 	}
 
 	return "", 0, 0
