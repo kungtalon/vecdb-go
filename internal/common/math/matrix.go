@@ -37,7 +37,7 @@ func NewMatrix32(data [][]float32) (*Matrix32, error) {
 	return &Matrix32{Rows: rows, Cols: cols, Data: flatData}, nil
 }
 
-func (m *Matrix32) Dim() int {
+func (m *Matrix32) Size() int {
 	return m.Rows * m.Cols
 }
 

@@ -32,14 +32,7 @@ tasks:
       - make -C {{.FAISS_DIR}}/build
       - sudo make -C {{.FAISS_DIR}}/build install
       - sudo cp {{.FAISS_DIR}}/build/c_api/libfaiss_c.so /usr/local/lib
-      - |
-        # Check if LD_LIBRARY_PATH is set, if not add it to bashrc
-        if ! grep -q "export LD_LIBRARY_PATH.*=/usr/local/lib" ~/.bashrc; then
-          echo 'export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
-          echo "Added LD_LIBRARY_PATH to ~/.bashrc"
-        else
-          echo "LD_LIBRARY_PATH already configured in ~/.bashrc"
-        fi
+      # better to add /usr/local/lib to LD_LIBRARY_PATH
     status:
       - test -f /usr/local/lib/libfaiss_c.so
 
@@ -109,5 +102,7 @@ tasks:
 
   test:
     desc: Run Go tests
+    env:
+      LD_LIBRARY_PATH: "/usr/local/lib:$LD_LIBRARY_PATH"
     cmds:
       - cd {{.USER_WORKING_DIR}} && go test -v ./...

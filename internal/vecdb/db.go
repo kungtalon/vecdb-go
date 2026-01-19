@@ -145,8 +145,8 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 // insertVectors inserts vectors into the vector index
 func (db *VectorDatabase) insertVectors(ids []uint64, mat *math.Matrix32) error {
 	// Validate vector dimensions match database parameters
-	if mat.Dim() != db.params.Dim {
-		return fmt.Errorf("vector dimension %d does not match database dimension %d", mat.Dim(), db.params.Dim)
+	if mat.Cols != db.params.Dim {
+		return fmt.Errorf("vector dimension %d does not match database dimension %d", mat.Cols, db.params.Dim)
 	}
 
 	// Convert uint64 IDs to int64 labels
