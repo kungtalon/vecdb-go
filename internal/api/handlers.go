@@ -2,9 +2,9 @@ package api
 
 import (
 	"net/http"
-	"sync"
 
 	"vecdb-go/internal/common"
+	"vecdb-go/internal/common/math"
 	"vecdb-go/internal/vecdb"
 
 	"github.com/gin-gonic/gin"
@@ -17,8 +17,10 @@ type VectorSearchRequest struct {
 }
 
 type VectorUpsertRequest struct {
-	Data   [][]float32 `json:"data"`
-	Labels []int64     `json:"labels"`
+	Data       math.Matrix32      `json:"data"`
+	Docs       []map[string]any   `json:"docs,omitempty"`
+	Attributes []map[string]any   `json:"attributes,omitempty"`
+	HnswParams *common.HnswParams `json:"hnsw_params,omitempty"`
 }
 
 type VectorSearchResponse struct {
@@ -30,7 +32,6 @@ type VectorUpsertResponse struct {
 }
 
 var vdb *vecdb.VectorDatabase
-var mu sync.Mutex
 
 func Initialize(db *vecdb.VectorDatabase) {
 	vdb = db
@@ -50,10 +51,7 @@ func HandleVectorSearch(c *gin.Context) {
 		FilterInputs: payload.FilterInputs,
 	}
 
-	mu.Lock()
 	results, err := vdb.Query(searchArgs)
-	mu.Unlock()
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -64,38 +62,24 @@ func HandleVectorSearch(c *gin.Context) {
 
 func HandleVectorUpsert(c *gin.Context) {
 	var payload VectorUpsertRequest
+
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Convert 2D array to flat array
-	var flatData []float32
-	var dataRow int
-	var dataDim int
-	if len(payload.Data) > 0 {
-		dataRow = len(payload.Data)
-		dataDim = len(payload.Data[0])
-		flatData = make([]float32, 0, dataRow*dataDim)
-		for _, row := range payload.Data {
-			flatData = append(flatData, row...)
-		}
-	}
-
 	upsertArgs := common.VdbUpsertArgs{
 		Vectors: common.VectorArgs{
-			FlatData: flatData,
-			DataRow:  dataRow,
-			DataDim:  dataDim,
+			FlatData: payload.Data.RawData(),
+			DataRow:  payload.Data.Rows,
+			DataDim:  payload.Data.Cols,
 		},
-		Docs:       make([]map[string]any, dataRow),
-		Attributes: make([]map[string]any, dataRow),
+		Docs:       payload.Docs,
+		Attributes: payload.Attributes,
+		HnswParams: payload.HnswParams,
 	}
 
-	mu.Lock()
 	err := vdb.Upsert(upsertArgs)
-	mu.Unlock()
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

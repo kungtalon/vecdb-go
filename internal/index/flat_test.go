@@ -6,10 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"vecdb-go/internal/common/math"
 	"vecdb-go/internal/filter"
 )
 
-func setupFlat(nrow, dim int, metricType MetricType) (*FlatIndex, *Matrix32, []int64, error) {
+func setupFlat(nrow, dim int, metricType MetricType) (*FlatIndex, *math.Matrix32, []int64, error) {
 	index, err := NewFlatIndex(dim, metricType)
 	if err != nil {
 		return nil, nil, nil, err
@@ -21,7 +22,7 @@ func setupFlat(nrow, dim int, metricType MetricType) (*FlatIndex, *Matrix32, []i
 		data[i] = float32(i + 1)
 	}
 
-	matrix := &Matrix32{
+	matrix := &math.Matrix32{
 		Rows: nrow,
 		Cols: dim,
 		Data: data,

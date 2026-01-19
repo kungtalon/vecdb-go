@@ -6,10 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"vecdb-go/internal/common/math"
 	"vecdb-go/internal/filter"
 )
 
-func setupHNSW(nrow, dim int, metricType MetricType) (*HNSWIndex, *Matrix32, []int64, error) {
+func setupHNSW(nrow, dim int, metricType MetricType) (*HNSWIndex, *math.Matrix32, []int64, error) {
 	// Use settings similar to the Rust tests
 	hnswParams := &HNSWParams{
 		EFConstruction: 20,
@@ -27,7 +28,7 @@ func setupHNSW(nrow, dim int, metricType MetricType) (*HNSWIndex, *Matrix32, []i
 		data[i] = float32(i + 1)
 	}
 
-	matrix := &Matrix32{
+	matrix := &math.Matrix32{
 		Rows: nrow,
 		Cols: dim,
 		Data: data,

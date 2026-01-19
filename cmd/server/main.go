@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"vecdb-go/internal/api"
 	"vecdb-go/internal/config"
 
@@ -13,7 +14,8 @@ func main() {
 	// Load configuration
 	appConfig, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
+		slog.Error("Error loading config", "error", err)
+		os.Exit(1)
 	}
 
 	// Initialize Gin router
@@ -24,8 +26,9 @@ func main() {
 
 	// Start the server
 	addr := ":" + fmt.Sprintf("%d", appConfig.Server.Port)
-	log.Printf("Server listening on %s", addr)
+	slog.Info("Server listening", "address", addr)
 	if err := router.Run(addr); err != nil {
-		log.Fatalf("Error starting server: %v", err)
+		slog.Error("Error starting server", "error", err)
+		os.Exit(1)
 	}
 }

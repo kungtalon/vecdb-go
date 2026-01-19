@@ -3,11 +3,12 @@ package vecdb
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"sync"
 
 	"vecdb-go/internal/common"
+	"vecdb-go/internal/common/math"
 	"vecdb-go/internal/filter"
 	"vecdb-go/internal/index"
 	"vecdb-go/internal/scalar"
@@ -95,7 +96,7 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 		return fmt.Errorf("failed to generate IDs: %w", err)
 	}
 
-	log.Printf("upsert vector data with ids: %v", ids)
+	slog.Info("Upserting vector data", "ids", ids)
 
 	// Process attributes - ensure we have a slice of the right length
 	attributes := args.Attributes
@@ -133,7 +134,7 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 
 	// Insert vectors into the index
 	if err := db.insertVectors(ids, &args.Vectors); err != nil {
-		log.Printf("Failed to insert vectors: %v", err)
+		slog.Error("Failed to insert vectors", "error", err)
 		db.revertAttributes(attributes, ids)
 		return err
 	}
@@ -155,7 +156,7 @@ func (db *VectorDatabase) insertVectors(ids []uint64, args *common.VectorArgs) e
 	}
 
 	// Create matrix from flat data
-	matrix := &index.Matrix32{
+	matrix := &math.Matrix32{
 		Rows: args.DataRow,
 		Cols: args.DataDim,
 		Data: args.FlatData,
@@ -293,7 +294,7 @@ func (db *VectorDatabase) Query(searchArgs common.VdbSearchArgs) ([]common.DocMa
 		return nil, fmt.Errorf("unable to query vector data: %w", err)
 	}
 
-	log.Printf("search result: %+v", searchResult)
+	slog.Debug("Search completed", "result", searchResult)
 
 	if len(searchResult.Labels) == 0 {
 		return []common.DocMap{}, nil

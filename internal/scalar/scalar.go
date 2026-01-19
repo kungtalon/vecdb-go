@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"log/slog"
 	"vecdb-go/internal/common"
 
 	"github.com/nutsdb/nutsdb"
@@ -287,7 +288,7 @@ func DebugPrintDB(s ScalarStorage, namespace string) error {
 		// Check if this is the special max ID key
 		if string(key) == string(keyIDMax) {
 			maxID := binary.BigEndian.Uint64(value)
-			fmt.Printf("[SPECIAL] %s = %d\n", keyIDMax, maxID)
+			slog.Debug("[SPECIAL]", "key", string(keyIDMax), "value", maxID)
 			continue
 		}
 
@@ -297,13 +298,13 @@ func DebugPrintDB(s ScalarStorage, namespace string) error {
 			var doc common.DocMap
 			err := json.Unmarshal(value, &doc)
 			if err == nil {
-				fmt.Printf("[DOC] ID=%d Value=%v\n", id, doc)
+				slog.Debug("[DOC]", "id", id, "value", doc)
 				continue
 			}
 		}
 
 		// Otherwise print as raw bytes
-		fmt.Printf("[RAW] Key=%s Value=%s\n", string(key), string(value))
+		slog.Debug("[RAW]", "key", string(key), "value", string(value))
 	}
 
 	return nil
