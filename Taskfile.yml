@@ -18,7 +18,7 @@ tasks:
   install-faiss:
     desc: Install FAISS with C API support
     cmds:
-      - git clone https://github.com/facebookresearch/faiss.git {{.FAISS_DIR}}
+      - git clone https://github.com/blevesearch/faiss.git {{.FAISS_DIR}}
       - |
         cd {{.FAISS_DIR}}
         cmake -B build \
