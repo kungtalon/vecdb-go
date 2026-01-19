@@ -1,10 +1,10 @@
 package api
 
 import (
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(router *gin.Engine) {
-    router.POST("/search", handleVectorSearch)
-    router.POST("/upsert", handleVectorUpsert)
+	router.POST("/search", HandleVectorSearch)
+	router.POST("/upsert", HandleVectorUpsert)
 }

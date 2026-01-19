@@ -9,7 +9,9 @@ require (
 	github.com/RoaringBitmap/roaring v1.9.4
 	github.com/blevesearch/go-faiss v1.0.27
 	github.com/gin-gonic/gin v1.7.4
+	github.com/google/uuid v1.6.0
 	github.com/nutsdb/nutsdb v1.1.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
@@ -35,7 +37,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/ugorji/go/codec v1.1.7 // indirect
 	github.com/xujiajun/utils v0.0.0-20220904132955-5f7c5b914235 // indirect

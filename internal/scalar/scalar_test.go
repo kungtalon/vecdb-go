@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"vecdb-go/internal/common"
 )
 
 func setupTestDB(t *testing.T) (ScalarStorage, string) {
@@ -16,8 +17,8 @@ func setupTestDB(t *testing.T) (ScalarStorage, string) {
 	}
 
 	db, err := NewScalarStorage(&ScalarOption{
-		dir:     tmpDir,
-		buckets: []string{NamespaceDocs, NamespaceWals, "default"},
+		DIR:     tmpDir,
+		Buckets: []string{NamespaceDocs, NamespaceWals, "default"},
 	})
 	if err != nil {
 		os.RemoveAll(tmpDir)
@@ -69,17 +70,17 @@ func TestGetValueAndMultiGetValue(t *testing.T) {
 	defer teardownTestDB(db, tmpDir)
 
 	// Store some documents
-	doc1 := DocMap{
+	doc1 := common.DocMap{
 		"name": "Alice",
 		"age":  float64(30),
 		"city": "New York",
 	}
-	doc2 := DocMap{
+	doc2 := common.DocMap{
 		"name": "Bob",
 		"age":  float64(25),
 		"city": "San Francisco",
 	}
-	doc3 := DocMap{
+	doc3 := common.DocMap{
 		"name": "Charlie",
 		"age":  float64(35),
 		"city": "Seattle",

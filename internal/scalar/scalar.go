@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"vecdb-go/internal/common"
 
 	"github.com/nutsdb/nutsdb"
@@ -18,8 +19,12 @@ var (
 	keyIDMax = []byte("__id_max__")
 )
 
-// DocMap represents a document with arbitrary key-value pairs
-type DocMap map[string]any
+type KVPair[T any] struct {
+	Key   []byte
+	Value T
+}
+
+type KVIterator[T any] iter.Seq[KVPair[T]]
 
 // ScalarStorage defines the interface for scalar database operations
 // This matches the ScalarStorage trait in Rust
@@ -31,10 +36,10 @@ type ScalarStorage interface {
 	Get(namespace string, key []byte) ([]byte, error)
 
 	// GetValue retrieves a document by ID from the specified namespace
-	GetValue(namespace string, id uint64) (DocMap, error)
+	GetValue(namespace string, id uint64) (common.DocMap, error)
 
 	// MultiGetValue retrieves multiple documents by IDs from the specified namespace
-	MultiGetValue(namespace string, ids []uint64) ([]DocMap, error)
+	MultiGetValue(namespace string, ids []uint64) ([]common.DocMap, error)
 
 	// GenIncrIDs generates a sequence of unique IDs for a namespace
 	GenIncrIDs(namespace string, count int) ([]uint64, error)
@@ -47,11 +52,11 @@ type ScalarStorage interface {
 }
 
 type ScalarOption struct {
-	dir     string   `toml:"dir"`
-	buckets []string `toml:"buckets"`
+	DIR     string   `toml:"dir"`
+	Buckets []string `toml:"buckets"`
 }
 
-type ScalarIterator common.KVIterator[[]byte]
+type ScalarIterator KVIterator[[]byte]
 
 // nutsDBStorage implements ScalarStorage using NutsDB
 type nutsDBStorage struct {
@@ -64,7 +69,7 @@ var _ ScalarStorage = (*nutsDBStorage)(nil)
 // This matches the new_scalar_storage function in Rust
 func NewScalarStorage(opts *ScalarOption) (ScalarStorage, error) {
 	nutsdbOpts := nutsdb.DefaultOptions
-	nutsdbOpts.Dir = opts.dir
+	nutsdbOpts.Dir = opts.DIR
 	nutsdbOpts.EntryIdxMode = nutsdb.HintKeyValAndRAMIdxMode // Better performance for key-value operations
 	nutsdbOpts.SegmentSize = 64 * 1024 * 1024                // 64MB segments
 
@@ -73,7 +78,7 @@ func NewScalarStorage(opts *ScalarOption) (ScalarStorage, error) {
 		return nil, fmt.Errorf("failed to open nutsdb: %w. Config: %+v", err, nutsdbOpts)
 	}
 
-	for _, bucket := range opts.buckets {
+	for _, bucket := range opts.Buckets {
 		if err = db.Update(func(tx *nutsdb.Tx) error {
 			err := tx.NewBucket(nutsdb.DataStructureBTree, bucket)
 			return err
@@ -128,7 +133,7 @@ func (s *nutsDBStorage) Get(namespace string, key []byte) ([]byte, error) {
 }
 
 // GetValue retrieves a document by ID from the specified namespace
-func (s *nutsDBStorage) GetValue(namespace string, id uint64) (DocMap, error) {
+func (s *nutsDBStorage) GetValue(namespace string, id uint64) (common.DocMap, error) {
 	key := EncodeID(id)
 	data, err := s.Get(namespace, key)
 	if err != nil {
@@ -138,12 +143,12 @@ func (s *nutsDBStorage) GetValue(namespace string, id uint64) (DocMap, error) {
 		return nil, nil
 	}
 
-	return common.JSONUnmarshal[DocMap](data)
+	return common.JSONUnmarshal[common.DocMap](data)
 }
 
 // MultiGetValue retrieves multiple documents by IDs from the specified namespace
-func (s *nutsDBStorage) MultiGetValue(namespace string, ids []uint64) ([]DocMap, error) {
-	results := make([]DocMap, 0, len(ids))
+func (s *nutsDBStorage) MultiGetValue(namespace string, ids []uint64) ([]common.DocMap, error) {
+	results := make([]common.DocMap, 0, len(ids))
 
 	// NutsDB doesn't have native multi-get, so we do multiple single gets in one transaction
 	err := s.db.View(func(tx *nutsdb.Tx) error {
@@ -153,13 +158,13 @@ func (s *nutsDBStorage) MultiGetValue(namespace string, ids []uint64) ([]DocMap,
 			if err != nil {
 				if err == nutsdb.ErrKeyNotFound {
 					// Return empty map for missing entries
-					results = append(results, DocMap{})
+					results = append(results, common.DocMap{})
 					continue
 				}
 				return err
 			}
 
-			doc, err := common.JSONUnmarshal[DocMap](entry)
+			doc, err := common.JSONUnmarshal[common.DocMap](entry)
 			if err != nil {
 				return fmt.Errorf("failed to deserialize doc for id %d: %w", id, err)
 			}
@@ -244,9 +249,9 @@ func (s *nutsDBStorage) Iterator(namespace string) (ScalarIterator, error) {
 		return nil, fmt.Errorf("failed to get all entries: %w", err)
 	}
 
-	return func(yield func(common.KVPair[[]byte]) bool) {
+	return func(yield func(KVPair[[]byte]) bool) {
 		for i, k := range keys {
-			if !yield(common.KVPair[[]byte]{Key: k, Value: values[i]}) {
+			if !yield(KVPair[[]byte]{Key: k, Value: values[i]}) {
 				return
 			}
 		}
@@ -289,7 +294,7 @@ func DebugPrintDB(s ScalarStorage, namespace string) error {
 		// Try to decode as ID
 		if len(key) == 8 {
 			id := DecodeID(key)
-			var doc DocMap
+			var doc common.DocMap
 			err := json.Unmarshal(value, &doc)
 			if err == nil {
 				fmt.Printf("[DOC] ID=%d Value=%v\n", id, doc)

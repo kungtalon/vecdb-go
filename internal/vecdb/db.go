@@ -1,36 +1,335 @@
 package vecdb
 
 import (
-    "fmt"
-    "sync"
+	"encoding/json"
+	"fmt"
+	"log"
+	"path/filepath"
+	"sync"
+
+	"vecdb-go/internal/common"
+	"vecdb-go/internal/filter"
+	"vecdb-go/internal/index"
+	"vecdb-go/internal/scalar"
 )
 
-type DatabaseParams struct {
-    // Define fields for database parameters
-}
+const (
+	ScalarDBFileSuffix = "scalar.db"
+	IndexFileSuffix    = "index.bin"
+	FilterFileSuffix   = "filter.bin"
+	WalFileSuffix      = "vdb.log"
+)
 
+// VectorDatabase is the main database structure managing scalar data, vector index, and filters
 type VectorDatabase struct {
-    mu      sync.Mutex
-    // Add fields for the vector database, such as storage and configuration
+	mu sync.RWMutex
+
+	params        common.DatabaseParams
+	scalarStorage scalar.ScalarStorage
+	vectorIndex   index.Index
+	filterIndex   *filter.IntFilterIndex
+
+	// persistence *persistence.Persistence // TODO: Add when persistence is ready
 }
 
-func NewVectorDatabase(filePath string, params DatabaseParams) (*VectorDatabase, error) {
-    // Initialize the vector database with the given parameters
-    return &VectorDatabase{}, nil
+// NewVectorDatabase creates a new vector database instance
+func NewVectorDatabase(dbPath string, params common.DatabaseParams) (*VectorDatabase, error) {
+	// Initialize scalar storage
+	scalarDBPath := filepath.Join(dbPath, ScalarDBFileSuffix)
+	scalarStorage, err := scalar.NewScalarStorage(
+		&scalar.ScalarOption{
+			DIR:     scalarDBPath,
+			Buckets: []string{scalar.NamespaceDocs, scalar.NamespaceWals},
+		})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create scalar storage: %w", err)
+	}
+
+	// Initialize vector index
+	var hnswParams *index.HNSWParams
+
+	if params.HnswParams != nil {
+		hnswParams = &index.HNSWParams{
+			EFConstruction: params.HnswParams.EFConstruction,
+			M:              params.HnswParams.M,
+		}
+	}
+
+	vectorIndex, err := index.NewIndex(
+		string(params.IndexType),
+		params.Dim,
+		index.MetricType(params.MetricType),
+		hnswParams,
+	)
+	if err != nil {
+		scalarStorage.Close()
+		return nil, fmt.Errorf("failed to create vector index: %w", err)
+	}
+
+	// Initialize filter index
+	filterIndex := filter.NewIntFilterIndex()
+
+	db := &VectorDatabase{
+		params:        params,
+		scalarStorage: scalarStorage,
+		vectorIndex:   vectorIndex,
+		filterIndex:   filterIndex,
+	}
+
+	return db, nil
 }
 
-func (db *VectorDatabase) Upsert(data interface{}) error {
-    db.mu.Lock()
-    defer db.mu.Unlock()
-    // Implement the logic to upsert data into the vector database
-    return nil
+// Upsert inserts or updates vectors and their associated documents/attributes
+func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// Validate input arguments
+	if field, got, expected := args.Validate(); field != "" {
+		return fmt.Errorf("unexpected length of field %s: %d, expected length is %d", field, got, expected)
+	}
+
+	// Generate unique IDs for the new vectors
+	ids, err := db.scalarStorage.GenIncrIDs(scalar.NamespaceDocs, args.Vectors.DataRow)
+	if err != nil {
+		return fmt.Errorf("failed to generate IDs: %w", err)
+	}
+
+	log.Printf("upsert vector data with ids: %v", ids)
+
+	// Process attributes - ensure we have a slice of the right length
+	attributes := args.Attributes
+	if len(attributes) == 0 {
+		attributes = make([]map[string]any, args.Vectors.DataRow)
+		for i := range attributes {
+			attributes[i] = make(map[string]any)
+		}
+	}
+
+	// Insert documents and attributes
+	for i := 0; i < args.Vectors.DataRow; i++ {
+		var doc map[string]any
+
+		if i < len(args.Docs) && args.Docs[i] != nil {
+			doc = args.Docs[i]
+		} else {
+			doc = make(map[string]any)
+		}
+
+		attr := attributes[i]
+
+		if err := db.insertDoc(doc, attr, ids[i]); err != nil {
+			return fmt.Errorf("failed to insert document for id %d: %w", ids[i], err)
+		}
+
+		if len(attr) > 0 {
+			if err := db.insertAttribute(attr, ids[i]); err != nil {
+				// Revert on error
+				db.revertAttributes(attributes, ids)
+				return fmt.Errorf("failed to insert attribute for id %d: %w", ids[i], err)
+			}
+		}
+	}
+
+	// Insert vectors into the index
+	if err := db.insertVectors(ids, &args.Vectors); err != nil {
+		log.Printf("Failed to insert vectors: %v", err)
+		db.revertAttributes(attributes, ids)
+		return err
+	}
+
+	return nil
 }
 
-func (db *VectorDatabase) Query(query interface{}) (interface{}, error) {
-    db.mu.Lock()
-    defer db.mu.Unlock()
-    // Implement the logic to query the vector database
-    return nil, nil
+// insertVectors inserts vectors into the vector index
+func (db *VectorDatabase) insertVectors(ids []uint64, args *common.VectorArgs) error {
+	// Validate vector dimensions match database parameters
+	if args.DataDim != db.params.Dim {
+		return fmt.Errorf("vector dimension %d does not match database dimension %d", args.DataDim, db.params.Dim)
+	}
+
+	// Convert uint64 IDs to int64 labels
+	labels := make([]int64, len(ids))
+	for i, id := range ids {
+		labels[i] = int64(id)
+	}
+
+	// Create matrix from flat data
+	matrix := &index.Matrix32{
+		Rows: args.DataRow,
+		Cols: args.DataDim,
+		Data: args.FlatData,
+	}
+
+	insertParams := &index.InsertParams{
+		Data:   matrix,
+		Labels: labels,
+	}
+
+	if err := db.vectorIndex.Insert(insertParams); err != nil {
+		return fmt.Errorf("unable to upsert vector data: %w", err)
+	}
+
+	return nil
 }
 
-// Additional methods for managing the vector database can be added here.
+// insertDoc inserts a document into scalar storage
+func (db *VectorDatabase) insertDoc(doc common.DocMap, attributes map[string]any, id uint64) error {
+	// Add id and attributes to the document
+	doc["id"] = id
+	doc["attributes"] = attributes
+
+	// Serialize document to JSON
+	docBytes, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("unable to serialize doc data: %w", err)
+	}
+
+	// Store in scalar storage
+	key := scalar.EncodeID(id)
+	if err := db.scalarStorage.Put(scalar.NamespaceDocs, key, docBytes); err != nil {
+		return fmt.Errorf("unable to upsert scalar data: %w", err)
+	}
+
+	return nil
+}
+
+// insertAttribute indexes attributes in the filter index
+func (db *VectorDatabase) insertAttribute(attr map[string]any, id uint64) error {
+	for key, value := range attr {
+		switch v := value.(type) {
+		case int:
+			db.filterIndex.Upsert(key, int64(v), id)
+		case int64:
+			db.filterIndex.Upsert(key, v, id)
+		case float64:
+			// JSON numbers are float64, convert to int64 if whole number
+			if v == float64(int64(v)) {
+				db.filterIndex.Upsert(key, int64(v), id)
+			} else {
+				return fmt.Errorf("unsupported attribute type for key %s: %v", key, value)
+			}
+		default:
+			return fmt.Errorf("unsupported attribute type for key %s: %T", key, value)
+		}
+	}
+
+	return nil
+}
+
+// revertAttributes removes attributes from the filter index (for rollback)
+func (db *VectorDatabase) revertAttributes(attrs []map[string]any, ids []uint64) {
+	for i, attr := range attrs {
+		if i >= len(ids) {
+			break
+		}
+		for key, value := range attr {
+			switch v := value.(type) {
+			case int:
+				db.filterIndex.Remove(key, int64(v), ids[i])
+			case int64:
+				db.filterIndex.Remove(key, v, ids[i])
+			case float64:
+				if v == float64(int64(v)) {
+					db.filterIndex.Remove(key, int64(v), ids[i])
+				}
+			}
+		}
+	}
+}
+
+// Query searches the vector database
+func (db *VectorDatabase) Query(searchArgs common.VdbSearchArgs) ([]common.DocMap, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	// Create search query
+	query := index.NewSearchQuery(searchArgs.Query)
+
+	// Validate query vector dimension
+	if len(query.Vector) != db.params.Dim {
+		return nil, fmt.Errorf("query vector length %d does not match index dimension %d",
+			len(query.Vector), db.params.Dim)
+	}
+
+	// Add HNSW parameters if provided
+	if searchArgs.HnswParams != nil {
+		hnswOpt := &index.HnswSearchOption{
+			EfSearch: searchArgs.HnswParams.EfSearch,
+		}
+		query = query.With(hnswOpt)
+	}
+
+	// Apply filters if provided
+	if len(searchArgs.FilterInputs) > 0 {
+		bitmap := filter.NewIdFilter().GetBitmap()
+
+		for _, filterInput := range searchArgs.FilterInputs {
+			var op filter.FilterOp
+			switch filterInput.Op {
+			case "equal":
+				op = filter.Equal
+			case "not_equal":
+				op = filter.NotEqual
+			default:
+				return nil, fmt.Errorf("unsupported filter operation: %s", filterInput.Op)
+			}
+
+			input := &filter.IntFilterInput{
+				Field:  filterInput.Field,
+				Op:     op,
+				Target: filterInput.Target,
+			}
+
+			bitmap = db.filterIndex.Apply(input, bitmap)
+		}
+
+		query = query.WithFilter(filter.NewIdFilterFrom(bitmap))
+	}
+
+	// Execute search
+	searchResult, err := db.vectorIndex.Search(query, searchArgs.K)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query vector data: %w", err)
+	}
+
+	log.Printf("search result: %+v", searchResult)
+
+	if len(searchResult.Labels) == 0 {
+		return []common.DocMap{}, nil
+	}
+
+	// Convert labels to uint64 IDs, filtering out invalid labels (-1)
+	ids := make([]uint64, 0, len(searchResult.Labels))
+	for _, label := range searchResult.Labels {
+		if label >= 0 {
+			ids = append(ids, uint64(label))
+		}
+	}
+
+	// Retrieve documents from scalar storage
+	documents, err := db.scalarStorage.MultiGetValue(scalar.NamespaceDocs, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve documents: %w", err)
+	}
+
+	// Convert scalar.DocMap to common.DocMap
+	result := make([]common.DocMap, len(documents))
+	for i, doc := range documents {
+		result[i] = common.DocMap(doc)
+	}
+
+	return result, nil
+}
+
+// Close closes the database and releases resources
+func (db *VectorDatabase) Close() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.scalarStorage != nil {
+		return db.scalarStorage.Close()
+	}
+
+	return nil
+}
