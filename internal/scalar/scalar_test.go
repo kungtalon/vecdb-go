@@ -100,6 +100,11 @@ func TestGetValueAndMultiGetValue(t *testing.T) {
 		t.Fatalf("Put failed: %v", err)
 	}
 
+	// Print all
+	if err := DebugPrintDB(db, NamespaceDocs); err != nil {
+		t.Fatalf("DebugPrintDB failed: %v", err)
+	}
+
 	// Test GetValue
 	retrieved, err := db.GetValue(NamespaceDocs, 1)
 	if err != nil {
