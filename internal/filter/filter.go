@@ -43,18 +43,28 @@ func (f *IdFilter) Filter(id uint64) bool {
 
 // AsSelector converts the IdFilter to a FAISS IdSelector for use in searches
 func (f *IdFilter) AsSelector() (faiss.Selector, error) {
+	if f.IsEmpty() {
+		return nil, nil
+	}
+
 	ids := make([]int64, 0, f.bitmap.GetCardinality())
 	iter := f.bitmap.Iterator()
 	for iter.HasNext() {
 		id := iter.Next()
 		ids = append(ids, int64(id))
 	}
+
 	return faiss.NewIDSelectorBatch(ids)
 }
 
 // GetBitmap returns the underlying roaring bitmap
 func (f *IdFilter) GetBitmap() *roaring.Bitmap {
 	return f.bitmap
+}
+
+// IsEmpty returns true if the filter has no IDs
+func (f *IdFilter) IsEmpty() bool {
+	return f.bitmap.GetCardinality() == 0
 }
 
 // Clone creates a copy of the filter

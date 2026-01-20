@@ -100,3 +100,25 @@ func TestFlatSearchWithParams(t *testing.T) {
 	assert.Len(t, result.Labels, k)
 	assert.NotEqual(t, labels[0], result.Labels[0], "First label should be filtered out")
 }
+
+func TestFlatSearchWithEmptyFilter(t *testing.T) {
+	index, data, labels, err := setupFlat(4, 5, L2)
+	require.NoError(t, err, "Failed to setup")
+
+	params := NewInsertParams(data, labels)
+	err = index.Insert(params)
+	require.NoError(t, err, "Insert failed")
+
+	query := []float32{1.1, 2.1, 2.9, 3.9, 5.0}
+	k := 3
+
+	// Test search with empty filter - should behave like no filter
+	idFilter := filter.NewIdFilter()
+	searchQueryWithEmptyFilter := NewSearchQuery(query).WithFilter(idFilter)
+	result, err := index.Search(searchQueryWithEmptyFilter, k)
+	require.NoError(t, err, "Search with empty filter failed")
+
+	assert.Len(t, result.Labels, k)
+	// Should return the closest label (label[0]) since filter is empty
+	assert.Equal(t, labels[0], result.Labels[0])
+}

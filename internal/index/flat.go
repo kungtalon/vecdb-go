@@ -64,7 +64,7 @@ func (fi *FlatIndex) Search(query *SearchQuery, k int) (*SearchResult, error) {
 	var distances []float32
 	var err error
 
-	if query.IdFilter != nil {
+	if query.IdFilter != nil && !query.IdFilter.IsEmpty() {
 		// Use FAISS SearchWithIDs for filtering during search (not post-filtering)
 		selector, err := query.IdFilter.AsSelector()
 		if err != nil {
