@@ -28,7 +28,7 @@ func TestTextWALEncoder(t *testing.T) {
 	attr1 := map[string]any{"category": int64(1), "priority": int64(10)}
 	vector1 := []float32{1.0, 2.0, 3.0}
 
-	err = p.Write(1, vector1, doc1, attr1)
+	err = p.WriteOnly(1, vector1, doc1, attr1)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestTextWALEncoder(t *testing.T) {
 	attr2 := map[string]any{"category": int64(2), "priority": int64(5)}
 	vector2 := []float32{4.0, 5.0, 6.0}
 
-	err = p.Write(2, vector2, doc2, attr2)
+	err = p.WriteOnly(2, vector2, doc2, attr2)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestTextWALEncoderRestore(t *testing.T) {
 		attr1 := map[string]any{"score": int64(100)}
 		vector1 := []float32{1.0, 2.0, 3.0}
 
-		err = p.Write(1, vector1, doc1, attr1)
+		err = p.WriteOnly(1, vector1, doc1, attr1)
 		if err != nil {
 			t.Fatalf("Failed to write record: %v", err)
 		}
@@ -150,7 +150,7 @@ func TestBinaryVsTextEncoder(t *testing.T) {
 			t.Fatalf("Failed to create binary persistence: %v", err)
 		}
 
-		err = p.Write(42, vector, doc, attr)
+		err = p.WriteOnly(42, vector, doc, attr)
 		if err != nil {
 			t.Fatalf("Failed to write binary record: %v", err)
 		}
@@ -171,7 +171,7 @@ func TestBinaryVsTextEncoder(t *testing.T) {
 			t.Fatalf("Failed to create text persistence: %v", err)
 		}
 
-		err = p.Write(42, vector, doc, attr)
+		err = p.WriteOnly(42, vector, doc, attr)
 		if err != nil {
 			t.Fatalf("Failed to write text record: %v", err)
 		}

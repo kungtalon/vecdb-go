@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"vecdb-go/internal/filter"
+	"vecdb-go/internal/index"
 	"vecdb-go/internal/persistence"
+	"vecdb-go/internal/scalar"
 )
 
 // Example demonstrating the use of text encoder for debugging WAL files
@@ -24,19 +27,36 @@ func main() {
 	// Example 1: Using Binary Encoder (production default)
 	fmt.Println("1. Creating WAL with Binary Encoder (production default):")
 	binaryPath := filepath.Join(tmpDir, "binary.wal")
-	createExampleWAL(binaryPath, persistence.NewBinaryWALEncoder("v1"), "binary")
+	createExampleWAL(binaryPath, persistence.NewBinaryWALEncoder("v1"), "binary", tmpDir)
 
 	// Example 2: Using Text Encoder (for debugging)
 	fmt.Println("\n2. Creating WAL with Text Encoder (for debugging):")
 	textPath := filepath.Join(tmpDir, "text.wal")
-	createExampleWAL(textPath, persistence.NewTextWALEncoder("v1"), "text")
+	createExampleWAL(textPath, persistence.NewTextWALEncoder("v1"), "text", tmpDir)
 
 	// Show the difference
 	showFileSizes(binaryPath, textPath)
 	showTextContent(textPath)
 }
 
-func createExampleWAL(walPath string, encoder persistence.WALEncoder, encoderType string) {
+func createExampleWAL(walPath string, encoder persistence.WALEncoder, encoderType string, tmpDir string) {
+	// Create minimal dependencies for the demo
+	scalarPath := filepath.Join(tmpDir, "scalar_"+encoderType+".db")
+	scalarStorage, err := scalar.NewScalarStorage(&scalar.ScalarOption{
+		DIR:     scalarPath,
+		Buckets: []string{scalar.NamespaceDocs},
+	})
+	if err != nil {
+		log.Fatalf("Failed to create scalar storage: %v", err)
+	}
+	defer scalarStorage.Close()
+
+	filterIndex := filter.NewIntFilterIndex()
+	vectorIndex, err := index.NewIndex("flat", 3, "l2", nil)
+	if err != nil {
+		log.Fatalf("Failed to create vector index: %v", err)
+	}
+
 	p, err := persistence.NewPersistenceWithEncoder(walPath, encoder)
 	if err != nil {
 		log.Fatalf("Failed to create persistence: %v", err)
@@ -71,7 +91,8 @@ func createExampleWAL(walPath string, encoder persistence.WALEncoder, encoderTyp
 	}
 
 	for _, record := range records {
-		err := p.Write(record.id, record.vector, record.doc, record.attributes)
+		// Write with eager=false since we're just creating a demo WAL file
+		err := p.Write(record.id, record.vector, record.doc, record.attributes, false, scalarStorage, filterIndex, vectorIndex, 3)
 		if err != nil {
 			log.Fatalf("Failed to write record: %v", err)
 		}

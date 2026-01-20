@@ -27,7 +27,7 @@ func TestPersistenceBasic(t *testing.T) {
 	attr1 := map[string]any{"category": int64(1)}
 	vector1 := []float32{1.0, 2.0, 3.0}
 
-	err = p.Write(1, vector1, doc1, attr1)
+	err = p.WriteOnly(1, vector1, doc1, attr1)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestPersistenceSync(t *testing.T) {
 	attr1 := map[string]any{"category": int64(1)}
 	vector1 := []float32{1.0, 2.0, 3.0}
 
-	err = p.Write(1, vector1, doc1, attr1)
+	err = p.WriteOnly(1, vector1, doc1, attr1)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestPersistenceSync(t *testing.T) {
 	attr2 := map[string]any{"category": int64(2)}
 	vector2 := []float32{4.0, 5.0, 6.0}
 
-	err = p.Write(2, vector2, doc2, attr2)
+	err = p.WriteOnly(2, vector2, doc2, attr2)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestPersistenceRestore(t *testing.T) {
 		attr1 := map[string]any{"category": int64(1)}
 		vector1 := []float32{1.0, 2.0, 3.0}
 
-		err = p.Write(1, vector1, doc1, attr1)
+		err = p.WriteOnly(1, vector1, doc1, attr1)
 		if err != nil {
 			t.Fatalf("Failed to write record: %v", err)
 		}
@@ -155,7 +155,7 @@ func TestPersistenceRestore(t *testing.T) {
 		attr2 := map[string]any{"category": int64(2)}
 		vector2 := []float32{4.0, 5.0, 6.0}
 
-		err = p.Write(2, vector2, doc2, attr2)
+		err = p.WriteOnly(2, vector2, doc2, attr2)
 		if err != nil {
 			t.Fatalf("Failed to write record: %v", err)
 		}
@@ -261,7 +261,7 @@ func TestPersistenceChecksumValidation(t *testing.T) {
 		attr1 := map[string]any{"category": int64(1)}
 		vector1 := []float32{1.0, 2.0, 3.0}
 
-		err = p.Write(1, vector1, doc1, attr1)
+		err = p.WriteOnly(1, vector1, doc1, attr1)
 		if err != nil {
 			t.Fatalf("Failed to write record: %v", err)
 		}
@@ -373,7 +373,7 @@ func TestPersistenceRollback(t *testing.T) {
 	attr1 := map[string]any{"category": int64(1)}
 	vector1 := []float32{1.0, 2.0, 3.0}
 
-	err = p.Write(1, vector1, doc1, attr1)
+	err = p.WriteOnly(1, vector1, doc1, attr1)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestPersistenceRollback(t *testing.T) {
 	attr2 := map[string]any{"category": "invalid"} // String instead of int!
 	vector2 := []float32{4.0, 5.0, 6.0}
 
-	err = p.Write(2, vector2, doc2, attr2)
+	err = p.WriteOnly(2, vector2, doc2, attr2)
 	if err != nil {
 		t.Fatalf("Failed to write record: %v", err)
 	}

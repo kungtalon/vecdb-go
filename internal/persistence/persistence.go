@@ -145,7 +145,50 @@ func (p *Persistence) initCounter() error {
 }
 
 // Write writes a new record to WAL
-func (p *Persistence) Write(vectorID uint64, vector []float32, doc map[string]any, attributes map[string]any) error {
+// If eager is true, Sync is called immediately after writing
+func (p *Persistence) Write(
+	vectorID uint64,
+	vector []float32,
+	doc map[string]any,
+	attributes map[string]any,
+	eager bool,
+	scalarStorage scalar.ScalarStorage,
+	filterIndex *filter.IntFilterIndex,
+	vectorIndex index.Index,
+	dim int,
+) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	logID := p.counter.Add(1)
+
+	record := WALRecord{
+		LogID:      logID,
+		Version:    p.version,
+		Operation:  Insert,
+		VectorID:   vectorID,
+		Vector:     vector,
+		Doc:        doc,
+		Attributes: attributes,
+	}
+
+	if err := p.encoder.EncodeRecord(p.bufWriter, &record); err != nil {
+		return fmt.Errorf("failed to write WAL record: %w", err)
+	}
+
+	// Store in pending logs for sync
+	p.pendingLogs = append(p.pendingLogs, record)
+
+	// If eager mode, sync immediately
+	if eager {
+		return p.syncLocked(scalarStorage, filterIndex, vectorIndex, dim)
+	}
+
+	return nil
+}
+
+// WriteOnly writes a record to WAL without syncing (for testing)
+func (p *Persistence) WriteOnly(vectorID uint64, vector []float32, doc map[string]any, attributes map[string]any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -215,7 +258,16 @@ func (p *Persistence) Sync(
 ) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.syncLocked(scalarStorage, filterIndex, vectorIndex, dim)
+}
 
+// syncLocked applies all pending WAL records (caller must hold lock)
+func (p *Persistence) syncLocked(
+	scalarStorage scalar.ScalarStorage,
+	filterIndex *filter.IntFilterIndex,
+	vectorIndex index.Index,
+	dim int,
+) error {
 	if len(p.pendingLogs) == 0 {
 		return nil
 	}
@@ -433,10 +485,10 @@ func (p *Persistence) Restore(
 	// Store records as pending logs
 	p.pendingLogs = records
 
-	// Unlock before calling Sync to avoid deadlock
+	// Unlock before calling Sync (which will re-acquire the lock)
 	p.mu.Unlock()
 
-	// Apply all records using Sync
+	// Apply all records using Sync (not syncLocked, as we don't hold the lock)
 	err = p.Sync(scalarStorage, filterIndex, vectorIndex, dim)
 
 	// Re-lock before returning

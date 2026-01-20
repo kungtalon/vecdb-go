@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"vecdb-go/internal/common"
 	"vecdb-go/internal/common/math"
@@ -31,6 +32,10 @@ type VectorDatabase struct {
 	vectorIndex   index.Index
 	filterIndex   *filter.IntFilterIndex
 	persistence   *persistence.Persistence
+
+	// Background sync control
+	stopSync chan struct{}
+	syncDone sync.WaitGroup
 }
 
 // NewVectorDatabase creates a new vector database instance
@@ -87,12 +92,17 @@ func NewVectorDatabase(params *common.DatabaseParams) (*VectorDatabase, error) {
 		vectorIndex:   vectorIndex,
 		filterIndex:   filterIndex,
 		persistence:   pers,
+		stopSync:      make(chan struct{}),
 	}
 
 	// Restore from WAL if exists
 	if err := pers.Restore(scalarStorage, filterIndex, vectorIndex, params.Dim); err != nil {
 		slog.Warn("Failed to restore from WAL, continuing with empty database", "error", err)
 	}
+
+	// Start background sync goroutine
+	db.syncDone.Add(1)
+	go db.backgroundSync()
 
 	return db, nil
 }
@@ -105,6 +115,11 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 	// Validate input arguments
 	if field, got, expected := args.Validate(); field != "" {
 		return fmt.Errorf("unexpected length of field %s: %d, expected length is %d", field, got, expected)
+	}
+
+	// Validate vector dimensions match database parameters
+	if args.Vectors.Cols != db.params.Dim {
+		return fmt.Errorf("vector dimension %d does not match database dimension %d", args.Vectors.Cols, db.params.Dim)
 	}
 
 	// Generate unique IDs for the new vectors
@@ -124,7 +139,7 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 		}
 	}
 
-	// Insert documents and attributes
+	// Write each record to WAL instead of directly inserting
 	for i := 0; i < args.Vectors.Rows; i++ {
 		var doc map[string]any
 
@@ -136,24 +151,27 @@ func (db *VectorDatabase) Upsert(args common.VdbUpsertArgs) error {
 
 		attr := attributes[i]
 
-		if err := db.insertDoc(doc, attr, ids[i]); err != nil {
-			return fmt.Errorf("failed to insert document for id %d: %w", ids[i], err)
+		// Extract vector for this row
+		vector := make([]float32, args.Vectors.Cols)
+		for j := 0; j < args.Vectors.Cols; j++ {
+			vector[j] = args.Vectors.At(i, j)
 		}
 
-		if len(attr) > 0 {
-			if err := db.insertAttribute(attr, ids[i]); err != nil {
-				// Revert on error
-				db.revertAttributes(attributes, ids)
-				return fmt.Errorf("failed to insert attribute for id %d: %w", ids[i], err)
-			}
+		// Write to WAL with eager=true to maintain backward compatibility with tests
+		// This will immediately sync the data to scalar storage, filter index, and vector index
+		if err := db.persistence.Write(
+			ids[i],
+			vector,
+			doc,
+			attr,
+			true, // eager mode for backward compatibility
+			db.scalarStorage,
+			db.filterIndex,
+			db.vectorIndex,
+			db.params.Dim,
+		); err != nil {
+			return fmt.Errorf("failed to write to WAL for id %d: %w", ids[i], err)
 		}
-	}
-
-	// Insert vectors into the index
-	if err := db.insertVectors(ids, &args.Vectors); err != nil {
-		slog.Error("Failed to insert vectors", "error", err)
-		db.revertAttributes(attributes, ids)
-		return err
 	}
 
 	return nil
@@ -254,6 +272,30 @@ func (db *VectorDatabase) Query(searchArgs common.VdbSearchArgs) ([]common.DocMa
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
+	// Sync any pending WAL records before querying
+	if db.persistence.GetPendingCount() > 0 {
+		// Need to upgrade to write lock for sync
+		db.mu.RUnlock()
+		db.mu.Lock()
+
+		// Check again after acquiring write lock
+		if db.persistence.GetPendingCount() > 0 {
+			if err := db.persistence.Sync(
+				db.scalarStorage,
+				db.filterIndex,
+				db.vectorIndex,
+				db.params.Dim,
+			); err != nil {
+				db.mu.Unlock()
+				db.mu.RLock()
+				return nil, fmt.Errorf("failed to sync WAL before query: %w", err)
+			}
+		}
+
+		db.mu.Unlock()
+		db.mu.RLock()
+	}
+
 	// Create search query
 	query := index.NewSearchQuery(searchArgs.Query)
 
@@ -335,6 +377,11 @@ func (db *VectorDatabase) Query(searchArgs common.VdbSearchArgs) ([]common.DocMa
 
 // Close closes the database and releases resources
 func (db *VectorDatabase) Close() error {
+	// Stop background sync goroutine first (without holding lock)
+	close(db.stopSync)
+	db.syncDone.Wait()
+
+	// Now acquire lock for cleanup
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -353,4 +400,54 @@ func (db *VectorDatabase) Close() error {
 	}
 
 	return nil
+}
+
+// backgroundSync periodically syncs pending WAL records
+func (db *VectorDatabase) backgroundSync() {
+	defer db.syncDone.Done()
+
+	ticker := time.NewTicker(5 * time.Second) // Sync every 5 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Check if there are pending records
+			if db.persistence.GetPendingCount() > 0 {
+				db.mu.Lock()
+
+				// Double-check after acquiring lock
+				if db.persistence.GetPendingCount() > 0 {
+					if err := db.persistence.Sync(
+						db.scalarStorage,
+						db.filterIndex,
+						db.vectorIndex,
+						db.params.Dim,
+					); err != nil {
+						slog.Error("Background sync failed", "error", err)
+					} else {
+						slog.Debug("Background sync completed", "records", db.persistence.GetPendingCount())
+					}
+				}
+
+				db.mu.Unlock()
+			}
+
+		case <-db.stopSync:
+			// Perform final sync before stopping
+			db.mu.Lock()
+			if db.persistence.GetPendingCount() > 0 {
+				if err := db.persistence.Sync(
+					db.scalarStorage,
+					db.filterIndex,
+					db.vectorIndex,
+					db.params.Dim,
+				); err != nil {
+					slog.Error("Final sync failed", "error", err)
+				}
+			}
+			db.mu.Unlock()
+			return
+		}
+	}
 }
