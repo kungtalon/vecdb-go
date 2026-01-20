@@ -81,6 +81,11 @@ func NewScalarStorage(opts *ScalarOption) (ScalarStorage, error) {
 
 	for _, bucket := range opts.Buckets {
 		if err = db.Update(func(tx *nutsdb.Tx) error {
+			exists := tx.ExistBucket(nutsdb.DataStructureBTree, bucket)
+			if exists {
+				return nil
+			}
+
 			err := tx.NewBucket(nutsdb.DataStructureBTree, bucket)
 			return err
 		}); err != nil {
