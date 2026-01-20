@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"vecdb-go/internal/common"
@@ -53,6 +54,7 @@ func HandleVectorSearch(c *gin.Context) {
 
 	results, err := vdb.Query(searchArgs)
 	if err != nil {
+		slog.Error("failed to search", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -77,6 +79,7 @@ func HandleVectorUpsert(c *gin.Context) {
 
 	err := vdb.Upsert(upsertArgs)
 	if err != nil {
+		slog.Error("failed to upsert", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

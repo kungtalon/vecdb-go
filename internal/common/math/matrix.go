@@ -37,6 +37,15 @@ func NewMatrix32(data [][]float32) (*Matrix32, error) {
 	return &Matrix32{Rows: rows, Cols: cols, Data: flatData}, nil
 }
 
+// NewMatrix32Empty creates an empty matrix with the given dimensions
+func NewMatrix32Empty(rows, cols int) *Matrix32 {
+	return &Matrix32{
+		Rows: rows,
+		Cols: cols,
+		Data: make([]float32, rows*cols),
+	}
+}
+
 func (m *Matrix32) Size() int {
 	return m.Rows * m.Cols
 }
@@ -49,6 +58,16 @@ func (m *Matrix32) Dims() (int, int) {
 // RawData returns the underlying float32 slice
 func (m *Matrix32) RawData() []float32 {
 	return m.Data
+}
+
+// At returns the element at row i, column j
+func (m *Matrix32) At(i, j int) float32 {
+	return m.Data[i*m.Cols+j]
+}
+
+// Set sets the element at row i, column j
+func (m *Matrix32) Set(i, j int, val float32) {
+	m.Data[i*m.Cols+j] = val
 }
 
 // UnmarshalJSON implements json.Unmarshaler interface
