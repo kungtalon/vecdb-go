@@ -1,36 +1,29 @@
 package persistence
 
 import (
-    "encoding/json"
-    "os"
+	"os"
+	"sync"
+	"sync/atomic"
 )
 
 type Persistence struct {
-    FilePath string
+	filePath  string
+	walWriter *os.File
+	mu        sync.Mutex
+	version   string
+	counter   atomic.Uint64
 }
 
-func NewPersistence(filePath string) *Persistence {
-    return &Persistence{FilePath: filePath}
-}
+type WALOperation int
 
-func (p *Persistence) Save(data interface{}) error {
-    file, err := os.Create(p.FilePath)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
+const (
+	Insert WALOperation = iota
+	Delete
+)
 
-    encoder := json.NewEncoder(file)
-    return encoder.Encode(data)
-}
-
-func (p *Persistence) Load(data interface{}) error {
-    file, err := os.Open(p.FilePath)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
-
-    decoder := json.NewDecoder(file)
-    return decoder.Decode(data)
+type WALRecord struct {
+	logID     uint64
+	version   string
+	operation WALOperation
+	data      []byte
 }
