@@ -23,6 +23,19 @@ type WALEncoder interface {
 	Name() string
 }
 
+func EncoderFactory(encoderType, version string) WALEncoder {
+	var encoder WALEncoder
+
+	if encoderType == "text" {
+		encoder = NewTextWALEncoder(version)
+	} else {
+		// Default to binary encoder
+		encoder = NewBinaryWALEncoder(version)
+	}
+
+	return encoder
+}
+
 // BinaryWALEncoder implements binary encoding with CRC32 checksum
 type BinaryWALEncoder struct {
 	version string

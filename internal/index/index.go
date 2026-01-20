@@ -1,6 +1,9 @@
 package index
 
-import "fmt"
+import (
+	"fmt"
+	"vecdb-go/internal/common"
+)
 
 var (
 	ErrInvalidHNSWParams    = fmt.Errorf("invalid HNSW parameters")
@@ -31,11 +34,11 @@ func NewIndex(indexType string, dim int, metric MetricType, hnswParams *HNSWPara
 	}
 }
 
-type MetricType string
+type MetricType = common.MetricType
 
-const (
-	IP MetricType = "ip"
-	L2 MetricType = "l2"
+var (
+	L2 MetricType = common.MetricTypeL2
+	IP MetricType = common.MetricTypeIP
 )
 
 type SearchResult struct {

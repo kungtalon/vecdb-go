@@ -187,7 +187,6 @@ func (s *nutsDBStorage) MultiGetValue(namespace string, ids []uint64) ([]common.
 }
 
 // GenIncrIDs generates a sequence of unique IDs for a namespace
-// This matches the Rust implementation's gen_incr_ids function
 func (s *nutsDBStorage) GenIncrIDs(namespace string, count int) ([]uint64, error) {
 	var ids []uint64
 

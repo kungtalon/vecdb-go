@@ -59,7 +59,7 @@ func NewVectorDatabase(params *common.DatabaseParams) (*VectorDatabase, error) {
 	vectorIndex, err := index.NewIndex(
 		string(params.IndexType),
 		params.Dim,
-		index.MetricType(params.MetricType),
+		params.MetricType,
 		hnswParams,
 	)
 	if err != nil {
@@ -72,15 +72,8 @@ func NewVectorDatabase(params *common.DatabaseParams) (*VectorDatabase, error) {
 
 	// Initialize persistence layer with encoder based on config
 	walPath := filepath.Join(params.FilePath, WalFileSuffix)
-	var encoder persistence.WALEncoder
-	if params.EncoderType == "text" {
-		encoder = persistence.NewTextWALEncoder(persistence.WALVersion)
-		slog.Info("Using text encoder for persistence", "path", walPath)
-	} else {
-		// Default to binary encoder
-		encoder = persistence.NewBinaryWALEncoder(persistence.WALVersion)
-		slog.Info("Using binary encoder for persistence", "path", walPath)
-	}
+	encoder := persistence.EncoderFactory(params.EncoderType, persistence.WALVersion)
+	slog.Info("Using encoder for persistence", "encoder_type", encoder.Name())
 
 	pers, err := persistence.NewPersistenceWithEncoder(walPath, encoder)
 	if err != nil {

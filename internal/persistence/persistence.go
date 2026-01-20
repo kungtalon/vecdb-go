@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"vecdb-go/internal/common"
 	commonMath "vecdb-go/internal/common/math"
 	"vecdb-go/internal/filter"
 	"vecdb-go/internal/index"
@@ -169,10 +170,6 @@ func (p *Persistence) Write(vectorID uint64, vector []float32, doc map[string]an
 
 	return nil
 }
-
-
-
-
 
 // Flush flushes buffered WAL data to disk
 func (p *Persistence) Flush() error {
@@ -365,17 +362,11 @@ func (p *Persistence) rollbackFilter(filterIndex *filter.IntFilterIndex, records
 	slog.Warn("Rolling back filter index changes", "count", len(records))
 	for _, record := range records {
 		for key, value := range record.Attributes {
-			var intValue int64
-			switch v := value.(type) {
-			case int:
-				intValue = int64(v)
-			case int64:
-				intValue = v
-			case float64:
-				if v == float64(int64(v)) {
-					intValue = int64(v)
-				}
+			intValue, ok := common.ToInt64(value)
+			if !ok {
+				continue
 			}
+
 			filterIndex.Remove(key, intValue, record.VectorID)
 		}
 	}
