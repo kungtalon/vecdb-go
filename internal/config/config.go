@@ -6,12 +6,20 @@ import (
 
 type AppConfig struct {
 	Database DatabaseParams `toml:"database"`
-	FilePath string         `toml:"file_path"`
 	Server   ServerConfig   `toml:"server"`
 }
 
 type DatabaseParams struct {
-	// Define the fields based on your database configuration
+	FilePath   string      `toml:"file_path"`
+	Dim        int         `toml:"dim"`
+	MetricType string      `toml:"metric_type"`
+	IndexType  string      `toml:"index_type"`
+	HnswParams *HnswParams `toml:"hnsw_params,omitempty"`
+}
+
+type HnswParams struct {
+	EFConstruction int `toml:"ef_construction"`
+	M              int `toml:"m"`
 }
 
 type ServerConfig struct {
