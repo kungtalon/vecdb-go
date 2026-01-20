@@ -2,13 +2,10 @@ package persistence
 
 import (
 	"bufio"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"log/slog"
-	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -44,6 +41,7 @@ type Persistence struct {
 	counter     atomic.Uint64
 	bufWriter   *bufio.Writer
 	pendingLogs []WALRecord
+	encoder     WALEncoder
 }
 
 type WALOperation int
@@ -71,8 +69,13 @@ type WALRecordData struct {
 	Attributes map[string]any
 }
 
-// NewPersistence creates a new persistence layer
+// NewPersistence creates a new persistence layer with binary encoding
 func NewPersistence(filePath string) (*Persistence, error) {
+	return NewPersistenceWithEncoder(filePath, NewBinaryWALEncoder(WALVersion))
+}
+
+// NewPersistenceWithEncoder creates a new persistence layer with custom encoder
+func NewPersistenceWithEncoder(filePath string, encoder WALEncoder) (*Persistence, error) {
 	// Open WAL file in append mode, create if not exists
 	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
@@ -85,6 +88,7 @@ func NewPersistence(filePath string) (*Persistence, error) {
 		version:     WALVersion,
 		bufWriter:   bufio.NewWriter(file),
 		pendingLogs: make([]WALRecord, 0, 100),
+		encoder:     encoder,
 	}
 
 	// Initialize counter from existing WAL if any
@@ -121,7 +125,7 @@ func (p *Persistence) initCounter() error {
 	bufReader := bufio.NewReader(reader)
 
 	for {
-		record, err := p.readRecord(bufReader)
+		record, err := p.encoder.DecodeRecord(bufReader)
 		if err == io.EOF {
 			break
 		}
@@ -156,7 +160,7 @@ func (p *Persistence) Write(vectorID uint64, vector []float32, doc map[string]an
 		Attributes: attributes,
 	}
 
-	if err := p.writeRecord(&record); err != nil {
+	if err := p.encoder.EncodeRecord(p.bufWriter, &record); err != nil {
 		return fmt.Errorf("failed to write WAL record: %w", err)
 	}
 
@@ -166,165 +170,9 @@ func (p *Persistence) Write(vectorID uint64, vector []float32, doc map[string]an
 	return nil
 }
 
-// writeRecord serializes and writes a single WAL record
-func (p *Persistence) writeRecord(record *WALRecord) error {
-	// Serialize doc and attributes
-	docBytes, err := json.Marshal(record.Doc)
-	if err != nil {
-		return fmt.Errorf("failed to marshal doc: %w", err)
-	}
 
-	attrBytes, err := json.Marshal(record.Attributes)
-	if err != nil {
-		return fmt.Errorf("failed to marshal attributes: %w", err)
-	}
 
-	dim := len(record.Vector)
-	vectorBytes := dim * 4
 
-	// Calculate total record size
-	// 4 (length) + 8 (logID) + 1 (op) + 8 (vectorID) + 4 (dim) + vectorBytes + 4 (docLen) + docLen + 4 (attrLen) + attrLen + 4 (checksum)
-	recordSize := 4 + 8 + 1 + 8 + 4 + vectorBytes + 4 + len(docBytes) + 4 + len(attrBytes) + 4
-
-	// Write record length
-	if err := binary.Write(p.bufWriter, binary.BigEndian, uint32(recordSize-4)); err != nil {
-		return err
-	}
-
-	// Start checksum calculation
-	crc := crc32.NewIEEE()
-	multiWriter := io.MultiWriter(p.bufWriter, crc)
-
-	// Write log ID
-	if err := binary.Write(multiWriter, binary.BigEndian, record.LogID); err != nil {
-		return err
-	}
-
-	// Write operation
-	if err := binary.Write(multiWriter, binary.BigEndian, uint8(record.Operation)); err != nil {
-		return err
-	}
-
-	// Write vector ID
-	if err := binary.Write(multiWriter, binary.BigEndian, record.VectorID); err != nil {
-		return err
-	}
-
-	// Write dimension
-	if err := binary.Write(multiWriter, binary.BigEndian, uint32(dim)); err != nil {
-		return err
-	}
-
-	// Write vector data
-	for _, val := range record.Vector {
-		if err := binary.Write(multiWriter, binary.BigEndian, val); err != nil {
-			return err
-		}
-	}
-
-	// Write doc length and data
-	if err := binary.Write(multiWriter, binary.BigEndian, uint32(len(docBytes))); err != nil {
-		return err
-	}
-	if _, err := multiWriter.Write(docBytes); err != nil {
-		return err
-	}
-
-	// Write attributes length and data
-	if err := binary.Write(multiWriter, binary.BigEndian, uint32(len(attrBytes))); err != nil {
-		return err
-	}
-	if _, err := multiWriter.Write(attrBytes); err != nil {
-		return err
-	}
-
-	// Write checksum
-	checksum := crc.Sum32()
-	if err := binary.Write(p.bufWriter, binary.BigEndian, checksum); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// readRecord reads a single WAL record from reader
-func (p *Persistence) readRecord(reader *bufio.Reader) (*WALRecord, error) {
-	// Read record length
-	var recordLen uint32
-	if err := binary.Read(reader, binary.BigEndian, &recordLen); err != nil {
-		return nil, err
-	}
-
-	// Read entire record into buffer for checksum verification
-	recordData := make([]byte, recordLen)
-	if _, err := io.ReadFull(reader, recordData); err != nil {
-		return nil, fmt.Errorf("failed to read record data: %w", err)
-	}
-
-	// Extract checksum (last 4 bytes)
-	if len(recordData) < 4 {
-		return nil, fmt.Errorf("record too short")
-	}
-
-	checksumBytes := recordData[len(recordData)-4:]
-	dataBytes := recordData[:len(recordData)-4]
-
-	expectedChecksum := binary.BigEndian.Uint32(checksumBytes)
-	actualChecksum := crc32.ChecksumIEEE(dataBytes)
-
-	if expectedChecksum != actualChecksum {
-		return nil, fmt.Errorf("checksum mismatch: expected %d, got %d", expectedChecksum, actualChecksum)
-	}
-
-	// Parse record data
-	record := &WALRecord{Version: p.version}
-	offset := 0
-
-	// Read log ID
-	record.LogID = binary.BigEndian.Uint64(dataBytes[offset : offset+8])
-	offset += 8
-
-	// Read operation
-	record.Operation = WALOperation(dataBytes[offset])
-	offset += 1
-
-	// Read vector ID
-	record.VectorID = binary.BigEndian.Uint64(dataBytes[offset : offset+8])
-	offset += 8
-
-	// Read dimension
-	dim := binary.BigEndian.Uint32(dataBytes[offset : offset+4])
-	offset += 4
-
-	// Read vector data
-	record.Vector = make([]float32, dim)
-	for i := uint32(0); i < dim; i++ {
-		bits := binary.BigEndian.Uint32(dataBytes[offset : offset+4])
-		record.Vector[i] = math.Float32frombits(bits)
-		offset += 4
-	}
-
-	// Read doc length and data
-	docLen := binary.BigEndian.Uint32(dataBytes[offset : offset+4])
-	offset += 4
-	docBytes := dataBytes[offset : offset+int(docLen)]
-	offset += int(docLen)
-
-	if err := json.Unmarshal(docBytes, &record.Doc); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal doc: %w", err)
-	}
-
-	// Read attributes length and data
-	attrLen := binary.BigEndian.Uint32(dataBytes[offset : offset+4])
-	offset += 4
-	attrBytes := dataBytes[offset : offset+int(attrLen)]
-
-	if err := json.Unmarshal(attrBytes, &record.Attributes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal attributes: %w", err)
-	}
-
-	return record, nil
-}
 
 // Flush flushes buffered WAL data to disk
 func (p *Persistence) Flush() error {
@@ -570,7 +418,7 @@ func (p *Persistence) Restore(
 
 	// Read all records with checksum verification
 	for {
-		record, err := p.readRecord(bufReader)
+		record, err := p.encoder.DecodeRecord(bufReader)
 		if err == io.EOF {
 			break
 		}
