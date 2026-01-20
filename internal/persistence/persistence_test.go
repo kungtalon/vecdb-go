@@ -330,7 +330,7 @@ func TestPersistenceChecksumValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get doc: %v", err)
 		}
-		if doc != nil && len(doc) > 0 {
+		if len(doc) > 0 {
 			t.Errorf("Expected no data after corrupted restore, got %v", doc)
 		}
 	}

@@ -1,12 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 	"vecdb-go/internal/api"
-	"vecdb-go/internal/common"
 	"vecdb-go/internal/config"
 	"vecdb-go/internal/vecdb"
 
@@ -14,12 +14,25 @@ import (
 )
 
 func main() {
-	// Load configuration
-	appConfig, err := config.LoadConfig()
+	// Parse command-line flags
+	mode := flag.String("mode", "dev", "Run mode (dev or test)")
+
+	flag.Parse()
+
+	// Determine which profile to use
+	profile := "dev"
+	if *mode == "test" {
+		profile = "test"
+	}
+
+	// Load configuration with the selected profile
+	appConfig, err := config.LoadConfigWithProfile(profile)
 	if err != nil {
-		slog.Error("Error loading config", "error", err)
+		slog.Error("Error loading config", "error", err, "profile", profile)
 		os.Exit(1)
 	}
+
+	slog.Info("Loaded configuration", "profile", profile)
 
 	// Configure logging level
 	setupLogging(appConfig.Server.LogLevel)
@@ -28,24 +41,9 @@ func main() {
 	setupGinMode(appConfig.Server.LogLevel)
 
 	// Prepare database parameters from config
-	dbParams := common.DatabaseParams{
-		Dim:        appConfig.Database.Dim,
-		MetricType: common.MetricType(appConfig.Database.MetricType),
-		IndexType:  common.IndexType(appConfig.Database.IndexType),
-		Version:    "1.0.0",
-	}
-
-	// Convert HNSW params if present
-	if appConfig.Database.HnswParams != nil {
-		dbParams.HnswParams = &common.HnswIndexOption{
-			EFConstruction: appConfig.Database.HnswParams.EFConstruction,
-			M:              appConfig.Database.HnswParams.M,
-		}
-	}
-
 	// Initialize VectorDatabase
-	slog.Info("Initializing vector database", "path", appConfig.Database.FilePath, "params", dbParams)
-	vdb, err := vecdb.NewVectorDatabase(appConfig.Database.FilePath, dbParams)
+	slog.Info("Initializing vector database", "path", appConfig.Database.FilePath, "params", appConfig.Database)
+	vdb, err := vecdb.NewVectorDatabase(&appConfig.Database)
 	if err != nil {
 		slog.Error("Error initializing vector database", "error", err)
 		os.Exit(1)

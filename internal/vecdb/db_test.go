@@ -16,8 +16,9 @@ import (
 )
 
 // createTestIndexParams creates test database parameters
-func createTestIndexParams(metricType common.MetricType, indexType common.IndexType) common.DatabaseParams {
+func createTestIndexParams(metricType common.MetricType, indexType common.IndexType, filePath string) common.DatabaseParams {
 	params := common.DatabaseParams{
+		FilePath:   filePath,
 		Dim:        3,
 		MetricType: metricType,
 		IndexType:  indexType,
@@ -81,8 +82,8 @@ func testVectorDatabaseNew(t *testing.T, indexType common.IndexType, metricType 
 	tp := newTestPath()
 	defer tp.cleanup()
 
-	params := createTestIndexParams(metricType, indexType)
-	db, err := NewVectorDatabase(tp.path(), params)
+	params := createTestIndexParams(metricType, indexType, tp.path())
+	db, err := NewVectorDatabase(&params)
 	require.NoError(t, err)
 	require.NotNil(t, db)
 
@@ -114,8 +115,8 @@ func testVectorDatabaseUpsert(t *testing.T, indexType common.IndexType, metricTy
 	tp := newTestPath()
 	defer tp.cleanup()
 
-	params := createTestIndexParams(metricType, indexType)
-	db, err := NewVectorDatabase(tp.path(), params)
+	params := createTestIndexParams(metricType, indexType, tp.path())
+	db, err := NewVectorDatabase(&params)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -160,8 +161,8 @@ func testVectorDatabaseQuery(t *testing.T, indexType common.IndexType, metricTyp
 	tp := newTestPath()
 	defer tp.cleanup()
 
-	params := createTestIndexParams(metricType, indexType)
-	db, err := NewVectorDatabase(tp.path(), params)
+	params := createTestIndexParams(metricType, indexType, tp.path())
+	db, err := NewVectorDatabase(&params)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -226,8 +227,8 @@ func testVectorDatabaseUpsertWithWrongDim(t *testing.T, indexType common.IndexTy
 	tp := newTestPath()
 	defer tp.cleanup()
 
-	params := createTestIndexParams(metricType, indexType)
-	db, err := NewVectorDatabase(tp.path(), params)
+	params := createTestIndexParams(metricType, indexType, tp.path())
+	db, err := NewVectorDatabase(&params)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -270,8 +271,8 @@ func testVectorDatabaseQueryWithNoResults(t *testing.T, indexType common.IndexTy
 	tp := newTestPath()
 	defer tp.cleanup()
 
-	params := createTestIndexParams(metricType, indexType)
-	db, err := NewVectorDatabase(tp.path(), params)
+	params := createTestIndexParams(metricType, indexType, tp.path())
+	db, err := NewVectorDatabase(&params)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -306,8 +307,8 @@ func testVectorDatabaseQueryWithFilter(t *testing.T, indexType common.IndexType,
 	tp := newTestPath()
 	defer tp.cleanup()
 
-	params := createTestIndexParams(metricType, indexType)
-	db, err := NewVectorDatabase(tp.path(), params)
+	params := createTestIndexParams(metricType, indexType, tp.path())
+	db, err := NewVectorDatabase(&params)
 	require.NoError(t, err)
 	defer db.Close()
 

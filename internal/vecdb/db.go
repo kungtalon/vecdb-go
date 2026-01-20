@@ -11,6 +11,7 @@ import (
 	"vecdb-go/internal/common/math"
 	"vecdb-go/internal/filter"
 	"vecdb-go/internal/index"
+	"vecdb-go/internal/persistence"
 	"vecdb-go/internal/scalar"
 )
 
@@ -25,18 +26,17 @@ const (
 type VectorDatabase struct {
 	mu sync.RWMutex
 
-	params        common.DatabaseParams
+	params        *common.DatabaseParams
 	scalarStorage scalar.ScalarStorage
 	vectorIndex   index.Index
 	filterIndex   *filter.IntFilterIndex
-
-	// persistence *persistence.Persistence // TODO: Add when persistence is ready
+	persistence   *persistence.Persistence
 }
 
 // NewVectorDatabase creates a new vector database instance
-func NewVectorDatabase(dbPath string, params common.DatabaseParams) (*VectorDatabase, error) {
+func NewVectorDatabase(params *common.DatabaseParams) (*VectorDatabase, error) {
 	// Initialize scalar storage
-	scalarDBPath := filepath.Join(dbPath, ScalarDBFileSuffix)
+	scalarDBPath := filepath.Join(params.FilePath, ScalarDBFileSuffix)
 	scalarStorage, err := scalar.NewScalarStorage(
 		&scalar.ScalarOption{
 			DIR:     scalarDBPath,
@@ -70,11 +70,35 @@ func NewVectorDatabase(dbPath string, params common.DatabaseParams) (*VectorData
 	// Initialize filter index
 	filterIndex := filter.NewIntFilterIndex()
 
+	// Initialize persistence layer with encoder based on config
+	walPath := filepath.Join(params.FilePath, WalFileSuffix)
+	var encoder persistence.WALEncoder
+	if params.EncoderType == "text" {
+		encoder = persistence.NewTextWALEncoder(persistence.WALVersion)
+		slog.Info("Using text encoder for persistence", "path", walPath)
+	} else {
+		// Default to binary encoder
+		encoder = persistence.NewBinaryWALEncoder(persistence.WALVersion)
+		slog.Info("Using binary encoder for persistence", "path", walPath)
+	}
+
+	pers, err := persistence.NewPersistenceWithEncoder(walPath, encoder)
+	if err != nil {
+		scalarStorage.Close()
+		return nil, fmt.Errorf("failed to create persistence layer: %w", err)
+	}
+
 	db := &VectorDatabase{
 		params:        params,
 		scalarStorage: scalarStorage,
 		vectorIndex:   vectorIndex,
 		filterIndex:   filterIndex,
+		persistence:   pers,
+	}
+
+	// Restore from WAL if exists
+	if err := pers.Restore(scalarStorage, filterIndex, vectorIndex, params.Dim); err != nil {
+		slog.Warn("Failed to restore from WAL, continuing with empty database", "error", err)
 	}
 
 	return db, nil
@@ -320,6 +344,16 @@ func (db *VectorDatabase) Query(searchArgs common.VdbSearchArgs) ([]common.DocMa
 func (db *VectorDatabase) Close() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	// Flush and close persistence layer
+	if db.persistence != nil {
+		if err := db.persistence.Flush(); err != nil {
+			slog.Warn("Failed to flush persistence layer", "error", err)
+		}
+		if err := db.persistence.Close(); err != nil {
+			slog.Warn("Failed to close persistence layer", "error", err)
+		}
+	}
 
 	if db.scalarStorage != nil {
 		return db.scalarStorage.Close()

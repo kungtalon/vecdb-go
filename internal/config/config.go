@@ -1,25 +1,20 @@
 package config
 
 import (
+	"fmt"
+	"vecdb-go/internal/common"
+
 	"github.com/BurntSushi/toml"
 )
 
 type AppConfig struct {
-	Database DatabaseParams `toml:"database"`
-	Server   ServerConfig   `toml:"server"`
+	Database common.DatabaseParams `toml:"database"`
+	Server   ServerConfig          `toml:"server"`
 }
 
-type DatabaseParams struct {
-	FilePath   string      `toml:"file_path"`
-	Dim        int         `toml:"dim"`
-	MetricType string      `toml:"metric_type"`
-	IndexType  string      `toml:"index_type"`
-	HnswParams *HnswParams `toml:"hnsw_params,omitempty"`
-}
-
-type HnswParams struct {
-	EFConstruction int `toml:"ef_construction"`
-	M              int `toml:"m"`
+type ProfileConfig struct {
+	Dev  AppConfig `toml:"dev"`
+	Test AppConfig `toml:"test"`
 }
 
 type ServerConfig struct {
@@ -30,9 +25,21 @@ type ServerConfig struct {
 }
 
 func LoadConfig() (*AppConfig, error) {
-	var config AppConfig
-	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
+	return LoadConfigWithProfile("dev")
+}
+
+func LoadConfigWithProfile(profile string) (*AppConfig, error) {
+	var profileConfig ProfileConfig
+	if _, err := toml.DecodeFile("config.toml", &profileConfig); err != nil {
 		return nil, err
 	}
-	return &config, nil
+
+	switch profile {
+	case "dev":
+		return &profileConfig.Dev, nil
+	case "test":
+		return &profileConfig.Test, nil
+	default:
+		return nil, fmt.Errorf("unknown profile: %s", profile)
+	}
 }

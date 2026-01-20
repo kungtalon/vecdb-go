@@ -20,17 +20,19 @@ const (
 
 // DatabaseParams contains parameters for database initialization
 type DatabaseParams struct {
-	Dim        int              `json:"dim"`
-	MetricType MetricType       `json:"metric_type"`
-	IndexType  IndexType        `json:"index_type"`
-	HnswParams *HnswIndexOption `json:"hnsw_params,omitempty"`
-	Version    string           `json:"version"`
+	FilePath    string           `json:"file_path" toml:"file_path"`
+	Dim         int              `json:"dim" toml:"dim"`
+	MetricType  MetricType       `json:"metric_type" toml:"metric_type"`
+	IndexType   IndexType        `json:"index_type" toml:"index_type"`
+	EncoderType string           `json:"encoder_type,omitempty" toml:"encoder_type,omitempty"` // "binary" or "text"
+	HnswParams  *HnswIndexOption `json:"hnsw_params,omitempty" toml:"hnsw_params,omitempty"`
+	Version     string           `json:"version" toml:"version"`
 }
 
 // HnswIndexOption contains HNSW index creation parameters
 type HnswIndexOption struct {
-	EFConstruction int `json:"ef_construction"`
-	M              int `json:"m"`
+	EFConstruction int `json:"ef_construction" toml:"ef_construction"`
+	M              int `json:"m" toml:"m"`
 }
 
 // HnswParams contains HNSW insertion parameters

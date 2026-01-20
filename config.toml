@@ -1,20 +1,38 @@
 # Configuration settings for the application
 
-[database]
+# Default/Development Profile
+[dev.database]
 # Database parameters
 file_path = "./data/vecdb"
 dim = 128
-metric_type = "l2"  # Options: "l2" or "ip"
-index_type = "flat"  # Options: "flat" or "hnsw"
+metric_type = "l2"         # Options: "l2" or "ip"
+index_type = "flat"        # Options: "flat" or "hnsw"
+encoder_type = "binary"    # Options: "binary" or "text"
 
 # HNSW index parameters (optional, only used when index_type = "hnsw")
-# [database.hnsw_params]
+# [dev.database.hnsw_params]
 # ef_construction = 200
 # m = 16
 
-[server]
+[dev.server]
 # Server configuration
 search_url_suffix = "/search"
 upsert_url_suffix = "/upsert"
 port = 8080
-log_level = "info"  # Options: "debug", "info", "warn", "error"
+log_level = "info"            # Options: "debug", "info", "warn", "error"
+
+# Test Profile
+[test.database]
+# Database parameters for testing
+file_path = "./data/vecdb-test"
+dim = 128
+metric_type = "l2"
+index_type = "flat"
+encoder_type = "text"           # Use text encoder for easier debugging in tests
+
+[test.server]
+# Server configuration for testing
+search_url_suffix = "/search"
+upsert_url_suffix = "/upsert"
+port = 8081
+log_level = "debug"           # More verbose logging for tests
