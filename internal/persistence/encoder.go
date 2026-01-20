@@ -2,6 +2,8 @@ package persistence
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -222,142 +224,171 @@ func (e *TextWALEncoder) Name() string {
 }
 
 func (e *TextWALEncoder) EncodeRecord(writer io.Writer, record *WALRecord) error {
-	// Marshal entire record as JSON with pretty formatting
-	data := map[string]any{
-		"log_id":     record.LogID,
-		"version":    record.Version,
-		"operation":  record.Operation.String(),
-		"vector_id":  record.VectorID,
-		"vector":     record.Vector,
-		"doc":        record.Doc,
-		"attributes": record.Attributes,
+	// Convert vector to base64
+	vectorBuf := new(bytes.Buffer)
+	for _, val := range record.Vector {
+		if err := binary.Write(vectorBuf, binary.BigEndian, val); err != nil {
+			return fmt.Errorf("failed to encode vector: %w", err)
+		}
 	}
+	vectorBase64 := base64.StdEncoding.EncodeToString(vectorBuf.Bytes())
 
-	jsonBytes, err := json.MarshalIndent(data, "", "  ")
+	// Marshal doc and attributes as compressed JSON (no indentation)
+	docJSON, err := json.Marshal(record.Doc)
 	if err != nil {
-		return fmt.Errorf("failed to marshal record: %w", err)
+		return fmt.Errorf("failed to marshal doc: %w", err)
 	}
 
-	// Write record with separator
-	_, err = fmt.Fprintf(writer, "=== WAL RECORD ===\n%s\n", string(jsonBytes))
+	attrJSON, err := json.Marshal(record.Attributes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attributes: %w", err)
+	}
+
+	// Escape any quotes or newlines in JSON strings for CSV compatibility
+	docStr := strings.ReplaceAll(string(docJSON), "\"", "\\\"")
+	docStr = strings.ReplaceAll(docStr, "\n", "\\n")
+	attrStr := strings.ReplaceAll(string(attrJSON), "\"", "\\\"")
+	attrStr = strings.ReplaceAll(attrStr, "\n", "\\n")
+
+	// Write CSV-like format: log_id,version,operation,vector_id,vector_base64,doc_json,attributes_json
+	_, err = fmt.Fprintf(writer, "%d,%s,%s,%d,%s,\"%s\",\"%s\"\n",
+		record.LogID,
+		record.Version,
+		record.Operation.String(),
+		record.VectorID,
+		vectorBase64,
+		docStr,
+		attrStr,
+	)
 	return err
 }
 
 func (e *TextWALEncoder) DecodeRecord(reader *bufio.Reader) (*WALRecord, error) {
-	// Read until we find the record separator
+	// Read one line (CSV format)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
 
-	// Skip empty lines
-	for strings.TrimSpace(line) == "" {
-		line, err = reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil, io.EOF
 	}
 
-	// Check for record separator
-	if !strings.HasPrefix(line, "=== WAL RECORD ===") {
-		return nil, fmt.Errorf("invalid record format: expected separator")
+	// Parse CSV-like format: log_id,version,operation,vector_id,vector_base64,"doc_json","attributes_json"
+	// We need to handle quoted fields properly
+	parts := parseCSVLine(line)
+	if len(parts) != 7 {
+		return nil, fmt.Errorf("invalid CSV format: expected 7 fields, got %d", len(parts))
 	}
 
-	// Read JSON content until we hit the next separator or EOF
-	var jsonContent strings.Builder
-	braceCount := 0
-	started := false
+	record := &WALRecord{}
 
-	for {
-		line, err := reader.ReadString('\n')
-		if err == io.EOF && jsonContent.Len() > 0 {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" && !started {
-			continue
-		}
-
-		// Check if we hit the next record
-		if strings.HasPrefix(line, "=== WAL RECORD ===") {
-			// Put the line back by creating a new reader with it prepended
-			// Since we can't really put it back, we'll just break and lose it
-			// In practice, this is fine for debugging purposes
-			break
-		}
-
-		jsonContent.WriteString(line)
-
-		// Track braces to know when JSON object is complete
-		for _, ch := range trimmed {
-			if ch == '{' {
-				braceCount++
-				started = true
-			} else if ch == '}' {
-				braceCount--
-			}
-		}
-
-		if started && braceCount == 0 {
-			break
-		}
+	// Parse log_id
+	var logID uint64
+	if _, err := fmt.Sscanf(parts[0], "%d", &logID); err != nil {
+		return nil, fmt.Errorf("failed to parse log_id: %w", err)
 	}
+	record.LogID = logID
 
-	// Parse JSON
-	var data map[string]any
-	if err := json.Unmarshal([]byte(jsonContent.String()), &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal record: %w", err)
-	}
+	// Parse version
+	record.Version = parts[1]
 
-	// Extract fields
-	record := &WALRecord{Version: e.version}
-
-	if logID, ok := data["log_id"].(float64); ok {
-		record.LogID = uint64(logID)
-	}
-
-	if version, ok := data["version"].(string); ok {
-		record.Version = version
-	}
-
-	if opStr, ok := data["operation"].(string); ok {
-		if opStr == "Insert" || opStr == "insert" {
-			record.Operation = Insert
-		} else if opStr == "Delete" || opStr == "delete" {
-			record.Operation = Delete
-		}
-	}
-
-	if vectorID, ok := data["vector_id"].(float64); ok {
-		record.VectorID = uint64(vectorID)
-	}
-
-	if vector, ok := data["vector"].([]any); ok {
-		record.Vector = make([]float32, len(vector))
-		for i, v := range vector {
-			if f, ok := v.(float64); ok {
-				record.Vector[i] = float32(f)
-			}
-		}
-	}
-
-	if doc, ok := data["doc"].(map[string]any); ok {
-		record.Doc = doc
+	// Parse operation
+	opStr := parts[2]
+	if opStr == "Insert" || opStr == "insert" {
+		record.Operation = Insert
+	} else if opStr == "Delete" || opStr == "delete" {
+		record.Operation = Delete
 	} else {
-		record.Doc = make(map[string]any)
+		return nil, fmt.Errorf("unknown operation: %s", opStr)
 	}
 
-	if attrs, ok := data["attributes"].(map[string]any); ok {
-		record.Attributes = attrs
-	} else {
-		record.Attributes = make(map[string]any)
+	// Parse vector_id
+	var vectorID uint64
+	if _, err := fmt.Sscanf(parts[3], "%d", &vectorID); err != nil {
+		return nil, fmt.Errorf("failed to parse vector_id: %w", err)
+	}
+	record.VectorID = vectorID
+
+	// Decode vector from base64
+	vectorBytes, err := base64.StdEncoding.DecodeString(parts[4])
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode vector base64: %w", err)
+	}
+
+	// Convert bytes to []float32
+	if len(vectorBytes)%4 != 0 {
+		return nil, fmt.Errorf("invalid vector data length")
+	}
+	dim := len(vectorBytes) / 4
+	record.Vector = make([]float32, dim)
+	vectorBuf := bytes.NewReader(vectorBytes)
+	for i := 0; i < dim; i++ {
+		if err := binary.Read(vectorBuf, binary.BigEndian, &record.Vector[i]); err != nil {
+			return nil, fmt.Errorf("failed to read vector float: %w", err)
+		}
+	}
+
+	// Unescape and parse doc JSON
+	docStr := strings.ReplaceAll(parts[5], "\\\"", "\"")
+	docStr = strings.ReplaceAll(docStr, "\\n", "\n")
+	if err := json.Unmarshal([]byte(docStr), &record.Doc); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal doc: %w", err)
+	}
+
+	// Unescape and parse attributes JSON
+	attrStr := strings.ReplaceAll(parts[6], "\\\"", "\"")
+	attrStr = strings.ReplaceAll(attrStr, "\\n", "\n")
+	if err := json.Unmarshal([]byte(attrStr), &record.Attributes); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal attributes: %w", err)
 	}
 
 	return record, nil
+}
+
+// parseCSVLine parses a CSV line handling quoted fields
+func parseCSVLine(line string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	escapeNext := false
+
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+
+		if escapeNext {
+			current.WriteByte(ch)
+			escapeNext = false
+			continue
+		}
+
+		if ch == '\\' {
+			escapeNext = true
+			current.WriteByte(ch)
+			continue
+		}
+
+		if ch == '"' {
+			inQuotes = !inQuotes
+			continue
+		}
+
+		if ch == ',' && !inQuotes {
+			parts = append(parts, current.String())
+			current.Reset()
+			continue
+		}
+
+		current.WriteByte(ch)
+	}
+
+	// Add last field
+	if current.Len() > 0 || len(parts) > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts
 }
 
 // String returns a string representation of the operation
